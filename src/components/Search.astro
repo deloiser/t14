@@ -1,0 +1,338 @@
+---
+---
+<div id="search-container" class="search-container">
+  <button id="search-toggle" class="search-toggle" aria-label="Search">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="11" cy="11" r="8"></circle>
+      <path d="m21 21-4.35-4.35"></path>
+    </svg>
+  </button>
+  <div id="search-modal" class="search-modal" hidden>
+    <div class="search-modal-overlay" id="search-overlay"></div>
+    <div class="search-modal-content">
+      <div class="search-input-wrapper">
+        <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"></circle>
+          <path d="m21 21-4.35-4.35"></path>
+        </svg>
+        <input 
+          type="search" 
+          id="pagefind-search" 
+          class="pagefind-search-input"
+          placeholder="Search..."
+          autocomplete="off"
+        />
+        <button id="search-close" class="search-close" aria-label="Close search">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div id="pagefind-ui" class="pagefind-ui">
+        <div class="pagefind-ui__message">Start typing to search...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script is:inline>
+  (async function() {
+    const searchToggle = document.getElementById('search-toggle');
+    const searchModal = document.getElementById('search-modal');
+    const searchOverlay = document.getElementById('search-overlay');
+    const searchClose = document.getElementById('search-close');
+    const searchInput = document.getElementById('pagefind-search');
+    const pagefindUI = document.getElementById('pagefind-ui');
+
+    let pagefind = null;
+    let searchInterface = null;
+
+    // Initialize Pagefind
+    async function initPagefind() {
+      if (pagefind) return;
+      
+      try {
+        // Load Pagefind dynamically - only available after build
+        // Use Function constructor to prevent Vite from analyzing the import
+        const loadPagefind = new Function('path', 'return import(path)');
+        const pagefindPath = ['/', 'pagefind', '/', 'pagefind', '.', 'js'].join('');
+        const pagefindModule = await loadPagefind(pagefindPath).catch((err) => {
+          console.warn('Failed to load Pagefind (normal in dev mode):', err);
+          return null;
+        });
+        if (!pagefindModule || typeof pagefindModule.init !== 'function') {
+          throw new Error('Pagefind not available');
+        }
+        pagefind = await pagefindModule.init();
+        
+        // Create search interface
+        if (pagefind && pagefindUI && searchInput) {
+          searchInterface = pagefind.newSearch();
+          
+          // Connect custom input to Pagefind
+          let searchTimeout;
+          searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.trim();
+            
+            clearTimeout(searchTimeout);
+            
+            if (!query) {
+              pagefindUI.innerHTML = '<div class="pagefind-ui__message">Start typing to search...</div>';
+              return;
+            }
+            
+            // Debounce search
+            searchTimeout = setTimeout(async () => {
+              try {
+                const results = await searchInterface.search(query);
+                
+                if (!pagefindUI) return;
+                
+                if (!results || results.results.length === 0) {
+                  pagefindUI.innerHTML = '<div class="pagefind-ui__message">No results found</div>';
+                  return;
+                }
+                
+                pagefindUI.innerHTML = results.results.map(result => `
+                  <div class="pagefind-ui__result">
+                    <a href="${result.url}" class="pagefind-ui__result-link">
+                      ${result.meta?.title || result.url}
+                    </a>
+                    ${result.excerpt ? `<div class="pagefind-ui__result-excerpt">${result.excerpt}</div>` : ''}
+                  </div>
+                `).join('');
+              } catch (error) {
+                console.error('Search error:', error);
+                if (pagefindUI) {
+                  pagefindUI.innerHTML = '<div class="pagefind-ui__message">Error performing search</div>';
+                }
+              }
+            }, 300);
+          });
+        }
+      } catch (error) {
+        console.warn('Pagefind not available (this is normal in dev mode):', error);
+        if (pagefindUI) {
+          pagefindUI.innerHTML = '<div class="pagefind-ui__message">Search will be available after building the site with <code>npm run build</code></div>';
+        }
+      }
+    }
+
+    function openSearch() {
+      searchModal.hidden = false;
+      document.body.style.overflow = 'hidden';
+      initPagefind().then(() => {
+        setTimeout(() => {
+          searchInput?.focus();
+        }, 100);
+      });
+    }
+
+    function closeSearch() {
+      searchModal.hidden = true;
+      document.body.style.overflow = '';
+      if (searchInput) {
+        searchInput.value = '';
+      }
+      if (pagefindUI) {
+        pagefindUI.innerHTML = '<div class="pagefind-ui__message">Start typing to search...</div>';
+      }
+    }
+
+    searchToggle?.addEventListener('click', openSearch);
+    searchOverlay?.addEventListener('click', closeSearch);
+    searchClose?.addEventListener('click', closeSearch);
+
+    // Close on Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !searchModal?.hidden) {
+        closeSearch();
+      }
+      // Open with Cmd/Ctrl + K
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        if (searchModal?.hidden) {
+          openSearch();
+        } else {
+          closeSearch();
+        }
+      }
+    });
+  })();
+</script>
+
+<style>
+  .search-container {
+    position: relative;
+  }
+
+  .search-toggle {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius);
+    color: var(--color-text-light);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+  }
+
+  .search-toggle:hover {
+    color: var(--color-primary);
+    background: var(--color-bg-alt);
+  }
+
+  .search-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 10vh;
+  }
+
+  .search-modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+  }
+
+  .search-modal-content {
+    position: relative;
+    z-index: 1001;
+    width: 90%;
+    max-width: 600px;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lg);
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .search-input-wrapper {
+    position: relative;
+    padding: var(--spacing-md);
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+  }
+
+  .search-icon {
+    color: var(--color-text-light);
+    flex-shrink: 0;
+  }
+
+  .pagefind-search-input {
+    flex: 1;
+    border: none;
+    background: none;
+    color: var(--color-text);
+    font-size: 1rem;
+    padding: var(--spacing-xs) 0;
+    outline: none;
+  }
+
+  .pagefind-search-input::placeholder {
+    color: var(--color-text-light);
+  }
+
+  .search-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: var(--spacing-xs);
+    color: var(--color-text-light);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius);
+    transition: all 0.2s ease;
+  }
+
+  .search-close:hover {
+    color: var(--color-text);
+    background: var(--color-bg-alt);
+  }
+
+  .pagefind-ui {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--spacing-md);
+  }
+
+  /* Pagefind UI Customization */
+  .pagefind-ui__result {
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-sm);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-bg-alt);
+    transition: all 0.2s ease;
+  }
+
+  .pagefind-ui__result:hover {
+    border-color: var(--color-primary);
+    background: var(--color-bg);
+  }
+
+  .pagefind-ui__result-link {
+    color: var(--color-text);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 1.125rem;
+    display: block;
+    margin-bottom: var(--spacing-xs);
+  }
+
+  .pagefind-ui__result-link:hover {
+    color: var(--color-primary);
+  }
+
+  .pagefind-ui__result-excerpt {
+    color: var(--color-text-light);
+    font-size: 0.875rem;
+    line-height: 1.6;
+    margin-top: var(--spacing-xs);
+  }
+
+  .pagefind-ui__result-title {
+    color: var(--color-text);
+    font-weight: 600;
+  }
+
+  .pagefind-ui__message {
+    color: var(--color-text-light);
+    padding: var(--spacing-lg);
+    text-align: center;
+  }
+
+  .pagefind-ui__search-input {
+    display: none; /* We use our custom input */
+  }
+
+  @media (max-width: 768px) {
+    .search-modal {
+      padding-top: 5vh;
+    }
+
+    .search-modal-content {
+      width: 95%;
+      max-height: 90vh;
+    }
+  }
+</style>
